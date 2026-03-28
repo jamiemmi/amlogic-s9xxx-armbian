@@ -74,9 +74,9 @@ CONFIG_DRM=y
 CONFIG_DRM_PANFROST=y
 
 # ── 显示 / VOP2 ───────────────────────────────────────────────
-CONFIG_DRM_ROCKCHIP=y
-CONFIG_ROCKCHIP_VOP2=y
-CONFIG_DRM_DW_HDMI=y
+CONFIG_DRM_ROCKCHIP=n
+CONFIG_ROCKCHIP_VOP2=n
+CONFIG_DRM_DW_HDMI=n
 
 # ── 文件系统 ──────────────────────────────────────────────────
 CONFIG_EXT4_FS=y
