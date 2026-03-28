@@ -77,7 +77,7 @@ jobs:
         if: ${{ steps.init.outputs.status }} == 'success'
         with:
           build_target: kernel
-          kernel_source: rk35xx
+          kernel_source: ophub
           kernel_version: ${{ inputs.kernel_version }}
           kernel_auto: ${{ inputs.kernel_auto }}
           kernel_package: all
