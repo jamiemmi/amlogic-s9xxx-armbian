@@ -1,0 +1,236 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * Panther-X2 自定义设备树
+ * SoC: Rockchip RK3566
+ *
+ * 基于上游 rk3566-panther-x2.dts 修改
+ * 主要定制：
+ *   - eMMC 调频参数
+ *   - USB3.0 OTG 模式
+ *   - 风扇 PWM 控制
+ *   - GPIO LED 支持
+ *   - PCIe/NVMe 配置
+ */
+
+/dts-v1/;
+#include "rk3566.dtsi"
+// 如果上游已有官方 dts，使用 #include 叠加：
+// #include "rk3566-panther-x2.dts"
+
+/ {
+	model = "Panther X2 (Custom Build)";
+	compatible = "panther,x2-custom", "panther,x2", "rockchip,rk3566";
+
+	/* ── 自定义内核版本描述（可选）── */
+	chosen {
+		bootargs = "earlycon=uart8250,mmio32,0xfe660000 console=ttyS2,1500000n8 rw";
+	};
+
+	/* ── GPIO LED ── */
+	leds {
+		compatible = "gpio-leds";
+		pinctrl-names = "default";
+		pinctrl-0 = <&led_pins>;
+
+		/* 系统状态 LED（蓝色） */
+		led_sys: led-sys {
+			label = "panther-x2:blue:sys";
+			gpios = <&gpio0 RK_PC5 GPIO_ACTIVE_HIGH>;
+			linux,default-trigger = "heartbeat";
+			default-state = "on";
+		};
+
+		/* 存储活动 LED（绿色） */
+		led_storage: led-storage {
+			label = "panther-x2:green:storage";
+			gpios = <&gpio0 RK_PC6 GPIO_ACTIVE_HIGH>;
+			linux,default-trigger = "mmc0";
+			default-state = "off";
+		};
+	};
+
+	/* ── 风扇 PWM 控制 ── */
+	fan: pwm-fan {
+		compatible = "pwm-fan";
+		pwms = <&pwm7 0 50000 0>;    /* 20kHz PWM */
+		cooling-levels = <0 64 128 192 255>;
+		#cooling-cells = <2>;
+	};
+
+	/* ── 电源配置 ── */
+	vcc5v0_sys: vcc5v0-sys {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc5v0_sys";
+		regulator-always-on;
+		regulator-boot-on;
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+	};
+
+	vcc3v3_sys: vcc3v3-sys {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc3v3_sys";
+		regulator-always-on;
+		regulator-boot-on;
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		vin-supply = <&vcc5v0_sys>;
+	};
+};
+
+/* ── eMMC 调优 ── */
+&sdhci {
+	status = "okay";
+	bus-width = <8>;
+	cap-mmc-highspeed;
+	mmc-hs200-1_8v;
+	mmc-hs400-1_8v;
+	mmc-hs400-enhanced-strobe;
+	/* 提升最大频率至 200MHz（HS400） */
+	max-frequency = <200000000>;
+	non-removable;
+	no-sd;
+	no-sdio;
+	vmmc-supply = <&vcc3v3_sys>;
+	vqmmc-supply = <&vcc_1v8>;
+};
+
+/* ── SD 卡 ── */
+&sdmmc0 {
+	status = "okay";
+	bus-width = <4>;
+	cap-sd-highspeed;
+	cap-mmc-highspeed;
+	sd-uhs-sdr12;
+	sd-uhs-sdr25;
+	sd-uhs-sdr50;
+	sd-uhs-sdr104;
+	vmmc-supply = <&vcc3v3_sys>;
+	vqmmc-supply = <&vccio_sd>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&sdmmc0_bus4 &sdmmc0_clk &sdmmc0_cmd &sdmmc0_det>;
+};
+
+/* ── PCIe / NVMe（M.2 插槽）── */
+&pcie2x1 {
+	status = "okay";
+	reset-gpios = <&gpio1 RK_PB2 GPIO_ACTIVE_HIGH>;
+	vpcie3v3-supply = <&vcc3v3_sys>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&pcie20_pins>;
+};
+
+/* ── USB 3.0 OTG（主控模式）── */
+&usb2phy0 {
+	status = "okay";
+};
+
+&usb2phy0_host {
+	status = "okay";
+	phy-supply = <&vcc5v0_sys>;
+};
+
+&usb2phy0_otg {
+	status = "okay";
+	/* 强制 HOST 模式，如需 OTG 改为 "otg" */
+	dr_mode = "host";
+};
+
+&usbdrd_dwc3 {
+	status = "okay";
+	dr_mode = "host";
+	extcon = <&usb2phy0>;
+};
+
+/* ── 千兆以太网 ── */
+&gmac1 {
+	status = "okay";
+	phy-mode = "rgmii";
+	clock_in_out = "output";
+	snps,reset-gpio = <&gpio3 RK_PB0 GPIO_ACTIVE_LOW>;
+	snps,reset-active-low;
+	snps,reset-delays-us = <0 20000 100000>;
+	assigned-clocks = <&cru SCLK_GMAC1_RX_TX>,
+	                  <&cru SCLK_GMAC1>;
+	assigned-clock-parents = <&cru SCLK_GMAC1_RGMII_SPEED>;
+	assigned-clock-rates = <0>, <125000000>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&gmac1m0_miim
+	             &gmac1m0_tx_bus2
+	             &gmac1m0_rx_bus2
+	             &gmac1m0_rgmii_clk
+	             &gmac1m0_rgmii_bus>;
+	tx_delay = <0x4f>;
+	rx_delay = <0x26>;
+	phy-handle = <&rgmii_phy1>;
+};
+
+&mdio1 {
+	rgmii_phy1: ethernet-phy@0 {
+		compatible = "ethernet-phy-ieee802.3-c22";
+		reg = <0x0>;
+		/* 开启绿色以太网（EEE）节能 */
+		eee-broken-100tx;
+	};
+};
+
+/* ── 热管理 / CPU 温控 ── */
+&tsadc {
+	status = "okay";
+	rockchip,hw-tshut-mode = <1>;   /* CRU 模式 */
+	rockchip,hw-tshut-polarity = <0>;
+};
+
+thermal-zones {
+	cpu_thermal: cpu-thermal {
+		polling-delay-passive = <200>;
+		polling-delay = <1000>;
+
+		trips {
+			cpu_warm: cpu-warm {
+				temperature = <60000>;   /* 60°C 启动风扇 */
+				hysteresis = <5000>;
+				type = "active";
+			};
+			cpu_hot: cpu-hot {
+				temperature = <75000>;   /* 75°C 加速风扇 */
+				hysteresis = <5000>;
+				type = "active";
+			};
+			cpu_crit: cpu-crit {
+				temperature = <95000>;   /* 95°C 紧急关机 */
+				hysteresis = <5000>;
+				type = "critical";
+			};
+		};
+
+		cooling-maps {
+			map0 {
+				trip = <&cpu_warm>;
+				cooling-device = <&fan THERMAL_NO_LIMIT 2>;
+			};
+			map1 {
+				trip = <&cpu_hot>;
+				cooling-device = <&fan 3 THERMAL_NO_LIMIT>;
+			};
+		};
+	};
+};
+
+/* ── pinctrl ── */
+&pinctrl {
+	leds {
+		led_pins: led-pins {
+			rockchip,pins =
+				<0 RK_PC5 RK_FUNC_GPIO &pcfg_pull_none>,
+				<0 RK_PC6 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+	};
+
+	pcie {
+		pcie20_pins: pcie20-pins {
+			rockchip,pins =
+				<1 RK_PB2 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+	};
+};
