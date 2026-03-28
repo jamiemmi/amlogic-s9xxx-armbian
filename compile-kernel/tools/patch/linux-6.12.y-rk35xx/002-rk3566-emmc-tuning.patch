@@ -1,0 +1,49 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: custom-build <build@panther-x2.local>
+Date: Sat, 28 Mar 2026 00:00:01 +0800
+Subject: [PATCH 2/3] mmc/rk3566: raise eMMC queue depth and HS400 tuning
+
+针对 Panther-X2 的 eMMC 控制器优化：
+- 提升 DW MMC 请求队列深度
+- 调整 HS400 增强模式的调校参数
+---
+ drivers/mmc/host/dw_mmc.c          |  4 ++++
+ drivers/mmc/host/sdhci-of-dwcmshc.c | 6 ++++++
+ 2 files changed, 10 insertions(+)
+
+diff --git a/drivers/mmc/host/dw_mmc.c b/drivers/mmc/host/dw_mmc.c
+index xxxxxxx..yyyyyyy 100644
+--- a/drivers/mmc/host/dw_mmc.c
++++ b/drivers/mmc/host/dw_mmc.c
+@@ -121,7 +121,11 @@ static void dw_mci_init_slot_caps(struct dw_mci_slot *slot)
+ 	struct mmc_host *mmc = slot->mmc;
+ 	int ctrl_id;
+ 
++	/* 提升队列深度，改善并发 eMMC IO 吞吐（Panther-X2 优化）*/
++	mmc->max_busy_timeout = 0;
++	mmc->max_segs = 512;
++	mmc->max_blk_count = 65535;
++
+ 	if (host->pdata->caps)
+ 		mmc->caps = host->pdata->caps;
+
+diff --git a/drivers/mmc/host/sdhci-of-dwcmshc.c b/drivers/mmc/host/sdhci-of-dwcmshc.c
+index xxxxxxx..yyyyyyy 100644
+--- a/drivers/mmc/host/sdhci-of-dwcmshc.c
++++ b/drivers/mmc/host/sdhci-of-dwcmshc.c
+@@ -580,6 +580,12 @@ static void rk35xx_sdhci_reset(struct sdhci_host *host, u8 mask)
+ 
+ static void dwcmshc_rk3568_sdhci_init(struct sdhci_host *host)
+ {
++	/*
++	 * Panther-X2 (RK3566) HS400 增强模式调校：
++	 * 延迟补偿值根据 PCB 走线长度微调，避免时序窗口偏移
++	 */
++	sdhci_writel(host, 0x5080c, DWCMSHC_EMMC_DLL_TXCLK);
++	sdhci_writel(host, 0xa0007, DWCMSHC_EMMC_DLL_STRBIN);
++
+ 	sdhci_writel(host, DWCMSHC_EMMC_DLL_CTRL_RESET, DWCMSHC_EMMC_DLL_CTRL);
+ 	udelay(1);
+ 	sdhci_writel(host, 0, DWCMSHC_EMMC_DLL_CTRL);
+--
+2.39.0
