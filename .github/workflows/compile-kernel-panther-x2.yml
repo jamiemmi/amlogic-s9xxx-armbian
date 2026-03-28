@@ -77,7 +77,7 @@ jobs:
         if: ${{ steps.init.outputs.status }} == 'success'
         with:
           build_target: kernel
-          kernel_source: jamiemmi   # 修改这里[span_4](end_span)
+          kernel_source: ophub   # 修改这里[span_4](end_span)
           # [span_5](start_span)[span_6](start_span)修改这里，增加保底值[span_5](end_span)[span_6](end_span)
           kernel_version: ${{ inputs.kernel_version || '6.12.y' }} 
           kernel_auto: ${{ inputs.kernel_auto }}
