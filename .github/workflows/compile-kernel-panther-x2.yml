@@ -1,0 +1,146 @@
+name: Compile Kernel · Panther-X2 (RK3566 · 6.12.y)
+
+on:
+  workflow_dispatch:
+    inputs:
+      kernel_version:
+        description: '内核版本 (留空则使用 6.12.y)'
+        required: false
+        default: '6.12.y'
+      kernel_auto:
+        description: '自动升级到同系列最新小版本'
+        required: false
+        default: 'true'
+      kernel_sign:
+        description: '内核自定义签名 (如 -panther-x2)'
+        required: false
+        default: '-panther-x2'
+
+env:
+  TZ: Asia/Shanghai
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # 允许写入 Releases
+
+    steps:
+      # ──────────────────────────────────────────────
+      # 1. 检出你自己 Fork 的仓库
+      # ──────────────────────────────────────────────
+      - name: Checkout forked repository
+        uses: actions/checkout@v4
+
+      # ──────────────────────────────────────────────
+      # 2. 初始化编译环境
+      # ──────────────────────────────────────────────
+      - name: Initialize environment
+        id: init
+        run: |
+          docker rmi $(docker images -q) 2>/dev/null || true
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc 2>/dev/null || true
+          sudo -E apt-get -y purge azure-cli ghc* zulu* llvm* firefox google* dotnet* powershell openjdk* mongodb* moby* || true
+          sudo -E apt-get -qq update
+          sudo -E apt-get -qq install -y $(curl -fsSL https://is.gd/depend_ubuntu2404_armbian)
+          sudo -E apt-get -qq autoremove --purge
+          sudo -E apt-get -qq clean
+          sudo timedatectl set-timezone "${TZ}"
+          echo "status=success" >> "${GITHUB_OUTPUT}"
+
+      # ──────────────────────────────────────────────
+      # 3. 确认自定义文件已就位（调试输出）
+      # ──────────────────────────────────────────────
+      - name: Verify custom files
+        run: |
+          echo "=== 自定义 config ==="
+          ls -lh compile-kernel/tools/config/ || true
+
+          echo "=== 自定义 patch ==="
+          ls -lh compile-kernel/tools/patch/linux-6.12.y-rk35xx/ || true
+          ls -lh compile-kernel/tools/patch/common-kernel-patches/ || true
+
+          echo "=== DTS patch ==="
+          ls -lh compile-kernel/tools/patch/linux-6.12.y-rk35xx/dts/ 2>/dev/null || true
+
+      # ──────────────────────────────────────────────
+      # 4. 编译内核
+      #    kernel_source=rk35xx  → 使用 rk3528/rk3566/rk3568 专用内核源
+      #    config_flavor=rk35xx  → 使用 ophub/kernel 中 rk35xx 的 config 模板
+      #    kernel_config=compile-kernel/tools/config → 指向本仓库自定义 config 目录
+      #    kernel_patch=compile-kernel/tools/patch   → 指向本仓库 patch 目录
+      #    auto_patch=true                           → 自动应用 patch
+      # ──────────────────────────────────────────────
+      - name: Compile kernel for Panther-X2 (RK3566)
+        id: compile
+        uses: ophub/amlogic-s9xxx-armbian@main
+        if: ${{ steps.init.outputs.status }} == 'success'
+        with:
+          build_target: kernel
+          kernel_source: rk35xx
+          kernel_version: ${{ inputs.kernel_version }}
+          kernel_auto: ${{ inputs.kernel_auto }}
+          kernel_package: all
+          kernel_sign: ${{ inputs.kernel_sign }}
+          # 指向本仓库的自定义 config 目录
+          # 文件名必须是 config-6.12（ophub 按主版本号匹配）
+          kernel_config: compile-kernel/tools/config
+          # 指向本仓库的 patch 根目录
+          # 子目录 linux-6.12.y-rk35xx/ 与 common-kernel-patches/ 会自动识别
+          kernel_patch: compile-kernel/tools/patch
+          auto_patch: true
+
+      # ──────────────────────────────────────────────
+      # 5. 附加 sysctl 配置到产物目录
+      # ──────────────────────────────────────────────
+      - name: Bundle sysctl config
+        if: env.PACKAGED_STATUS == 'success'
+        run: |
+          cp -f compile-kernel/tools/sysctl/99-panther-x2.conf \
+            "${{ env.PACKAGED_OUTPUTPATH }}/" 2>/dev/null || true
+
+      # ──────────────────────────────────────────────
+      # 6. 发布到 GitHub Releases
+      # ──────────────────────────────────────────────
+      - name: Upload to Release
+        uses: ncipollo/release-action@main
+        if: env.PACKAGED_STATUS == 'success'
+        with:
+          tag: kernel_rk35xx_${{ inputs.kernel_version }}_${{ env.PACKAGED_OUTPUTDATE }}
+          artifacts: ${{ env.PACKAGED_OUTPUTPATH }}/*
+          allowUpdates: true
+          removeArtifacts: false
+          replacesArtifacts: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+          body: |
+            ## Panther-X2 (RK3566) 专属内核
+            | 项目 | 值 |
+            |------|-----|
+            | 内核版本 | `${{ inputs.kernel_version }}` |
+            | 签名 | `${{ inputs.kernel_sign }}` |
+            | 内核系列 | `rk35xx`（rk3528/rk3566/rk3568）|
+            | 编译时间 | `${{ env.PACKAGED_OUTPUTDATE }}` |
+
+            ### 自定义内容
+            - ✅ 自定义内核命名/签名
+            - ✅ Panther-X2 专用 DTS（`rk3566-panther-x2-custom.dts`）
+            - ✅ 自定义 `.config` 编译选项（`config-6.12`）
+            - ✅ 源码 patch（`linux-6.12.y-rk35xx/`）
+            - ✅ sysctl 运行时优化（`99-panther-x2.conf`）
+
+            ### sysctl 部署
+            ```bash
+            sudo cp 99-panther-x2.conf /etc/sysctl.d/
+            sudo sysctl --system
+            ```
+
+      # ──────────────────────────────────────────────
+      # 7. 备用：上传为 Artifact（编译失败也保留日志）
+      # ──────────────────────────────────────────────
+      - name: Upload artifact (fallback)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kernel-panther-x2-${{ inputs.kernel_version }}
+          path: ${{ env.PACKAGED_OUTPUTPATH }}
+          retention-days: 7
